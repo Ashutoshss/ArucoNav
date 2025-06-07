@@ -26,7 +26,7 @@ class Drone(Node):
 
         self.set_mode()
 
-        self.marker_setpoint = [10.0, -10.0, 0.0]  
+        self.marker_setpoint = [300.0, -10.0, 0.0]  
         self.current_pos = None
         self.current_alt = None
         self.reached = False
