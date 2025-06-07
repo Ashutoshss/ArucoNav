@@ -47,6 +47,10 @@ class Drone(Node):
         self.prev_time = self.get_clock().now()
 
         self.bridge = CvBridge()
+        self.roi_size = 100  
+        self.marker_centered = False
+        self.marker_offset = [0, 0]
+
 
         self.subscription = self.create_subscription(
             Image,
@@ -159,21 +163,44 @@ class Drone(Node):
         
         marker_corners, marker_IDs , reject = aruco.detectMarkers(gray_image,aruco_dict,parameters=aruco_parameter)
 
-        if marker_IDs is not None:
-            for corners, marker_id in zip(marker_corners, marker_IDs.flatten()):
-                corners = corners.reshape((4, 2)).astype(int)
+        height, width, _ = frame.shape
+        cx_roi, cy_roi = width // 2, height // 2
 
-                # Draw the polygon around the marker
-                cv.polylines(frame, [corners], isClosed=True, color=(0, 255, 0), thickness=2)
+        roi_half = self.roi_size // 2
+        self.roi_box = [(cx_roi - roi_half, cy_roi - roi_half), (cx_roi + roi_half, cy_roi + roi_half)]
+        if not self.marker_centered:
+            cv.rectangle(frame, self.roi_box[0], self.roi_box[1], (0, 0, 255), 2)
+        else:
+            cv.rectangle(frame, self.roi_box[0], self.roi_box[1], (0, 255, 0), 2)
+        self.marker_centered = False
+        if self.reachedX and self.reachedY:
+            if marker_IDs is not None:
+                for corners, marker_id in zip(marker_corners, marker_IDs.flatten()):
+                    corners = corners.reshape((4, 2)).astype(int)
 
-                # Compute and draw center
-                center_x = int(np.mean(corners[:, 0]))
-                center_y = int(np.mean(corners[:, 1]))
-                cv.circle(frame, (center_x, center_y), radius=5, color=(0, 0, 255), thickness=-1)
+                    cv.polylines(frame, [corners], isClosed=True, color=(0, 255, 0), thickness=2)
 
-                # Draw ID text
-                cv.putText(frame, f"ID: {marker_id}", (center_x + 10, center_y),
-                        cv.FONT_HERSHEY_SIMPLEX, 0.7, (255, 0, 0), 2)
+                    self.center_x = int(np.mean(corners[:, 0]))
+                    self.center_y = int(np.mean(corners[:, 1]))
+                    cv.circle(frame, (self.center_x, self.center_y), radius=5, color=(0, 0, 255), thickness=-1)
+
+                    
+                    cv.putText(frame, f"ID: {marker_id}", (self.center_x + 10, self.center_y),
+                            cv.FONT_HERSHEY_SIMPLEX, 0.7, (255, 0, 0), 2)
+                    
+                    if (self.roi_box[0][0] <= self.center_x <= self.roi_box[1][0]) and (self.roi_box[0][1] <= self.center_y <= self.roi_box[1][1]):
+                        time.sleep(2)
+                        if (self.roi_box[0][0] <= self.center_x <= self.roi_box[1][0]) and (self.roi_box[0][1] <= self.center_y <= self.roi_box[1][1]):
+                            self.marker_centered = True
+                    
+                    if self.center_x >= width//2 and self.center_y <= height//2:
+                        self.marker_offset = [(self.center_x - cx_roi), (self.center_y - cy_roi)]
+                    elif self.center_x < width//2 and self.center_y <= height//2:
+                        self.marker_offset = [(self.center_x - cx_roi), -(self.center_y - cy_roi)]
+                    elif self.center_x < width//2 and self.center_y > height//2:
+                        self.marker_offset = [-(self.center_x - cx_roi), -(self.center_y - cy_roi)]
+                    elif self.center_x >= width//2 and self.center_y > height//2:
+                        self.marker_offset = [-(self.center_x - cx_roi), (self.center_y - cy_roi)]
         cv.imshow("camera",frame)
         cv.waitKey(1)
 
@@ -270,15 +297,48 @@ class Drone(Node):
                     self.reachedY = True
 
             if self.reachedX and self.reachedY:
-                self.reached = True
+                if not self.marker_centered:
+                    error_x_px = self.marker_offset[0]
+                    error_y_px = self.marker_offset[1]
+                    error_x = error_x_px / 100.0 
+                    error_y = error_y_px / 100.0
+
+                    ex = error_x - self.current_pos[0]
+                    ey = error_y - self.current_pos[1]
+
+
+                    # print("marker center mai aaya")
+
+                    # print(error_x)
+                    # print(error_y)
+
+                    self.set_velocity(0.01*ex, 0.01*ey, 0)
+                    self.get_logger().info(f"Logging error: ({error_x_px}, {error_y_px})")
+
+                else:
+                    self.set_velocity(0, 0, 0)
+                    self.get_logger().info("Marker centered. Initiating landing...")
+                    self.disarm()
+                    if self.landed:
+                        self.get_logger().info("mission completed...")
+                        self.get_logger().info("exiting the process...")
+                        exit(0)
+
+
+
+
+
+
+            # if self.reachedX and self.reachedY:
+            #     self.reached = True
 
             
-            if self.reached:
-                self.disarm()
-                if self.landed:
-                    self.get_logger().info("mission completed...")
-                    self.get_logger().info("exiting the process...")
-                    exit(0)
+            # if self.reached:
+            #     self.disarm()
+            #     if self.landed:
+            #         self.get_logger().info("mission completed...")
+            #         self.get_logger().info("exiting the process...")
+            #         exit(0)
 
 def main():
     rclpy.init(args=sys.argv)
