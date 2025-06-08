@@ -37,8 +37,8 @@ class Drone(Node):
         self.target_altitude = 1.0
 
         self.Kp = [0.03, 0.03]
-        self.Ki = [0.001, 0.001]
-        self.Kd = [0.005, 0.005]
+        self.Ki = [0.00, 0.00]
+        self.Kd = [0.00, 0.00]
 
         self.prev_errorX = 0.0
         self.prev_errorY = 0.0
